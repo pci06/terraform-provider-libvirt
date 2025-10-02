@@ -2,7 +2,6 @@ package libvirt
 
 import (
 	"log"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
@@ -29,6 +28,7 @@ func Provider() *schema.Provider {
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{
+			"libvirt_network":                          datasourceLibvirtNetwork(),
 			"libvirt_network_dns_host_template":        datasourceLibvirtNetworkDNSHostTemplate(),
 			"libvirt_network_dns_srv_template":         datasourceLibvirtNetworkDNSSRVTemplate(),
 			"libvirt_network_dnsmasq_options_template": datasourceLibvirtNetworkDnsmasqOptionsTemplate(),
@@ -58,6 +58,7 @@ func CleanupLibvirtConnections() {
 }
 
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
+
 	config := Config{
 		URI: d.Get("uri").(string),
 	}
