@@ -1,210 +1,122 @@
 package libvirt
 
 import (
+	"context"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
-	"net"
-	"strconv"
-
 	"github.com/dmacvicar/terraform-provider-libvirt/libvirt/helper/hashcode"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	//"libvirt.org/go/libvirtxml"
+	"log"
+	"strconv"
+	//libvirt "github.com/digitalocean/go-libvirt"
 )
 
-// a libvirt network DNS host template datasource
-//
-// Datasource example:
-//
-//	data "libvirt_network_dns_host_template" "k8smasters" {
-//	  count = "${var.master_count}"
-//	  ip = "${var.master_ips[count.index]}"
-//	  hostname = "master-${count.index}"
-//	}
-//
-//	resource "libvirt_network" "k8snet" {
-//	  ...
-//	  dns = [{
-//	    hosts = [ "${flatten(data.libvirt_network_dns_host_template.k8smasters.*.rendered)}" ]
-//	  }]
-//	  ...
-//	}.
-func datasourceLibvirtNetworkDNSHostTemplate() *schema.Resource {
-	return &schema.Resource{
-		Read: resourceLibvirtNetworkDNSHostRead,
-		Schema: map[string]*schema.Schema{
-			"ip": {
-				Type:     schema.TypeString,
+type NetworkGeneric struct {
+	Network xml.Name `xml:"network"`
+	Name string `xml:"name"`
+	UUID string `xml:"uuid"`
+	Forward struct {
+		Forward xml.Name `xml:"forward"`
+		Mode string `xml:"mode,attr"`
+	} `xml:"forward"`
+	Bridge struct {
+		Bridge xml.Name `xml:"bridge"`
+		Name string `xml:"name,attr"`
+		STP string `xml:"stp,attr"`
+		Delay string `xml:"delay,attr"`
+	} `xml:"bridge"`
+	MAC struct {
+		MAC xml.Name `xml:"mac"`
+		Address string `xml:"address,attr"`
+	} `xml:"mac"`
+	IP struct {
+		IP xml.Name `xml:"ip"`
+		Address string `xml:"address,attr"`
+		NetMask string `xml:"netmask,attr"`
+		DHCP struct {
+			DHCP xml.Name `xml:"dhcp"`
+			Range struct {
+				Range xml.Name `xml:"range"`
+				Start string `xml:"start,attr"`
+				End string `xml:"end,attr"`
+			} `xml:"range"`
+		} `xml:"dhcp"`
+	} `xml:"ip"`
+}
+
+func datasourceLibvirtNetworkCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	tflog.Info(ctx, "XXX datasourceLibvirtNetwoCreate XXX")
+	//client := meta.(*Client)
+	//virConn := client.libvirt
+	return datasourceLibvirtNetworkRead(ctx, d, meta)
+}
+
+func datasourceLibvirtNetwork() *schema.Resource {
+	log.Printf("[DEBUG] create schema")
+	return &schema.Resource {
+		ReadContext: datasourceLibvirtNetworkRead,
+		Schema: map[string]*schema.Schema {
+			"name": {
+				Type: schema.TypeString,
 				Required: true,
 			},
-			"hostname": {
-				Type:     schema.TypeString,
-				Required: true,
+			"uuid": {
+				Type: schema.TypeString,
+				Optional: true,
 			},
-			"rendered": {
+			"forward": {
 				Type: schema.TypeMap,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-				Computed: true,
+				Optional: true,
 			},
 		},
 	}
 }
 
-func resourceLibvirtNetworkDNSHostRead(d *schema.ResourceData, meta interface{}) error {
-	dnsHost := map[string]interface{}{}
-	if address, ok := d.GetOk("ip"); ok {
-		ip := net.ParseIP(address.(string))
-		if ip == nil {
-			return fmt.Errorf("could not parse address '%s'", address)
-		}
-		dnsHost["ip"] = ip.String()
-	}
-	if hostname, ok := d.GetOk("hostname"); ok {
-		dnsHost["hostname"] = hostname.(string)
-	}
-	d.Set("rendered", dnsHost)
-	d.SetId(strconv.Itoa(hashcode.String(fmt.Sprintf("%v", dnsHost))))
+func datasourceLibvirtNetworkRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	tflog.Debug(ctx, "Read data source libvirt_network")
 
-	return nil
-}
+	virConn := meta.(*Client).libvirt
 
-// a libvirt network DNS SRV template datasource
-//
-// Datasource example:
-//
-//	data "libvirt_network_dns_srv_template" "etcd_cluster" {
-//	  count = "${var.etcd_count}"
-//	  service = "etcd-server"
-//	  protocol = "tcp"
-//	  domain = "${discovery_domain}"
-//	  target = "${var.cluster_name}-etcd-${count.index}.${discovery_domain}"
-//	}
-//
-//	resource "libvirt_network" "k8snet" {
-//	  ...
-//	  dns = [{
-//	    srvs = [ "${flatten(data.libvirt_network_dns_srv_template.etcd_cluster.*.rendered)}" ]
-//	  }]
-//	  ...
-//	}.
-func datasourceLibvirtNetworkDNSSRVTemplate() *schema.Resource {
-	return &schema.Resource{
-		Read: resourceLibvirtNetworkDNSSRVRead,
-		Schema: map[string]*schema.Schema{
-			"service": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"protocol": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"domain": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"target": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"port": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"weight": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"priority": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"rendered": {
-				Type:     schema.TypeMap,
-				Computed: true,
-			},
-		},
-	}
-}
+	var networkName string
 
-func resourceLibvirtNetworkDNSSRVRead(d *schema.ResourceData, meta interface{}) error {
-	dnsSRV := map[string]interface{}{}
-	if service, ok := d.GetOk("service"); ok {
-		dnsSRV["service"] = service.(string)
+	if name, ok := d.GetOk("name"); ok {
+		networkName = name.(string)
+		tflog.Debug(ctx, "Got name: ", map[string]interface{}{ "networkName": networkName })
 	}
-	if protocol, ok := d.GetOk("protocol"); ok {
-		dnsSRV["protocol"] = protocol.(string)
-	}
-	if domain, ok := d.GetOk("domain"); ok {
-		dnsSRV["domain"] = domain.(string)
-	}
-	if target, ok := d.GetOk("target"); ok {
-		dnsSRV["target"] = target.(string)
-	}
-	if port, ok := d.GetOk("port"); ok {
-		dnsSRV["port"] = port.(string)
-	}
-	if weight, ok := d.GetOk("weight"); ok {
-		dnsSRV["weight"] = weight.(string)
-	}
-	if priority, ok := d.GetOk("priority"); ok {
-		dnsSRV["priority"] = priority.(string)
-	}
-	d.Set("rendered", dnsSRV)
-	d.SetId(strconv.Itoa(hashcode.String(fmt.Sprintf("%v", dnsSRV))))
 
-	return nil
-}
+	network, err := virConn.NetworkLookupByName(networkName)
+	if err != nil {
+		return diag.Errorf("failed to lookup network: %w", err)
+	}
 
-// a libvirt network dnsmasq template datasource
-//
-// Datasource example:
-//
-//	data "libvirt_network_dnsmasq_options_template" "options" {
-//	  count = length(var.libvirt_dnsmasq_options)
-//	  option_name = keys(var.libvirt_dnsmasq_options)[count.index]
-//	  option_value = values(var.libvirt_dnsmasq_options)[count.index]
-//	}
-//
-//	resource "libvirt_network" "k8snet" {
-//	  ...
-//	  dnsmasq_options = [{
-//	    options = [ "${flatten(data.libvirt_network_dnsmasq_options_template.options.*.rendered)}" ]
-//	  }]
-//	  ...
-//	}.
-func datasourceLibvirtNetworkDnsmasqOptionsTemplate() *schema.Resource {
-	return &schema.Resource{
-		Read: resourceLibvirtNetworkDnsmasqOptionsRead,
-		Schema: map[string]*schema.Schema{
-			"option_name": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"option_value": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"rendered": {
-				Type: schema.TypeMap,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-				Computed: true,
-			},
-		},
+	xmlDesc, err := virConn.NetworkGetXMLDesc(network, 0)
+	if err != nil {
+		return diag.Errorf("failed to get XML for network: %w", err)
 	}
-}
 
-func resourceLibvirtNetworkDnsmasqOptionsRead(d *schema.ResourceData, meta interface{}) error {
-	dnsmasqOption := map[string]interface{}{}
-	if name, ok := d.GetOk("option_name"); ok {
-		dnsmasqOption["option_name"] = name.(string)
+	networkXML := NetworkGeneric{}
+
+	err = xml.Unmarshal([]byte(xmlDesc), &networkXML)
+	if err != nil {
+		tflog.Error(ctx, "failed to unmarshal XML into networkXML:", map[string]interface{}{"error": err})
 	}
-	if value, ok := d.GetOk("option_value"); ok {
-		dnsmasqOption["option_value"] = value.(string)
-	}
-	d.Set("rendered", dnsmasqOption)
-	d.SetId(strconv.Itoa(hashcode.String(fmt.Sprintf("%v", dnsmasqOption))))
+	tflog.Debug(ctx, "XXX Parsed network into networkXML: ", map[string]interface{}{"xml": networkXML})
+
+	d.Set("xml", xmlDesc)
+	d.Set("uuid", networkXML.UUID)
+	var inInterface map[string]interface{}
+	inrec, _ := json.Marshal(networkXML.Forward)
+	json.Unmarshal(inrec, &inInterface)
+	tflog.Debug(ctx, "Setting interface to:", inInterface)
+	d.Set("forward", &inInterface)
+//	d.Set("path", networkXML.Path)
+//	d.Set("parent", networkXML.Parent)
+	//log.Printf("[DEBUG] d.Set capability type %s : %s", capability[0]["type"], capability)
+	d.SetId(strconv.Itoa(hashcode.String(fmt.Sprintf("%v", xmlDesc))))
 
 	return nil
 }
